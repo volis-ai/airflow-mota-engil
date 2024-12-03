@@ -1,0 +1,160 @@
+name: git-slack-pr-notifier
+
+on:
+  pull_request:
+    types: [opened, closed, review_requested, reopened]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Send Slack notification
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      run: |
+        # Definir a cor da notificação
+        color="#84befe"
+
+        # Coletar a lista de revisores solicitados
+        reviewers=$(echo "${{ github.event.pull_request.requested_reviewers[*].login }}" | jq -r '.[]' | grep -v "${{ github.event.pull_request.user.login }}" | awk '{print "<https://github.com/"$1"|"$1">"}' | paste -sd ", ")
+
+        # Verificar se há revisores na lista; se não houver, usar o actor
+        if [ -z "$reviewers" ]; then
+          reviewers="<https://github.com/${{ github.actor }}|${{ github.actor }}>"
+        fi
+
+        # Notificação de PR mergeado
+        if [ "${{ github.event.action }}" == "closed" ] && [ "${{ github.event.pull_request.merged }}" == "true" ]; then
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": "A pull request has been *merged*: <${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}> (#${{ github.event.pull_request.number }})",
+            "attachments": [
+              {
+                "color": "'$color'",
+                "blocks": [
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Author*: <https://github.com/${{ github.actor }}|${{ github.actor }}>\n*Branch*: `${{ github.event.pull_request.head.ref }}`\n*Commits*: `${{ github.event.pull_request.commits }}`\n*Files Changed*: `${{ github.event.pull_request.changed_files }}`"
+                    }
+                  }
+                ]
+              }
+            ]
+          }' $SLACK_WEBHOOK
+
+        # Notificação de PR fechado sem merge
+        elif [ "${{ github.event.action }}" == "closed" ] && [ "${{ github.event.pull_request.merged }}" != "true" ]; then
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": "A pull request has been *closed without merge*: <${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}> (#${{ github.event.pull_request.number }})",
+            "attachments": [
+              {
+                "color": "'$color'",
+                "blocks": [
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Author*: <https://github.com/${{ github.actor }}|${{ github.actor }}>\n*Branch*: `${{ github.event.pull_request.head.ref }}`"
+                    }
+                  }
+                ]
+              }
+            ]
+          }' $SLACK_WEBHOOK
+
+        # Notificação de revisão submetida
+        elif [ "${{ github.event.action }}" == "submitted" ]; then
+          review_state="${{ github.event.review.state }}"
+          reviewer="<https://github.com/${{ github.event.review.user.login }}|${{ github.event.review.user.login }}>"
+
+          # Notificação de aprovação
+          if [ "$review_state" == "approved" ]; then
+            curl -X POST -H 'Content-type: application/json' --data '{
+              "text": "A pull request has been *approved*: <${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}> (#${{ github.event.pull_request.number }})",
+              "attachments": [
+                {
+                  "color": "'$color'",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Reviewer*: '$reviewer'\n*Author*: <https://github.com/${{ github.event.pull_request.user.login }}|${{ github.event.pull_request.user.login }}>\n*Branch*: `${{ github.event.pull_request.head.ref }}`"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }' $SLACK_WEBHOOK
+
+          # Notificação de solicitação de ajustes
+          elif [ "$review_state" == "changes_requested" ]; then
+            curl -X POST -H 'Content-type: application/json' --data '{
+              "text": "Changes have been *requested* on pull request: <${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}> (#${{ github.event.pull_request.number }})",
+              "attachments": [
+                {
+                  "color": "'$color'",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Reviewer*: '$reviewer'\n*Author*: <https://github.com/${{ github.event.pull_request.user.login }}|${{ github.event.pull_request.user.login }}>\n*Branch*: `${{ github.event.pull_request.head.ref }}`\n*Comments*: `${{ github.event.review.body }} `"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }' $SLACK_WEBHOOK
+          fi
+
+        # Notificação de solicitação de revisão
+        elif [ "${{ github.event.action }}" == "review_requested" ]; then
+          requested_reviewer=$(echo "${{ github.event.requested_reviewer.login }}" | awk '{print "<https://github.com/"$1"|"$1">"}')
+
+          # Verificar se o login do revisor está presente, se não, usar o actor
+          if [ -z "$requested_reviewer" ]; then
+            requested_reviewer="<https://github.com/${{ github.actor }}|${{ github.actor }}>"
+          fi
+
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": "A review has been *requested* for pull request: <${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}> (#${{ github.event.pull_request.number }})",
+            "attachments": [
+              {
+                "color": "'$color'",
+                "blocks": [
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Author*: <https://github.com/${{ github.actor }}|${{ github.actor }}>\n*Branch*: `${{ github.event.pull_request.head.ref }}`\n*Review request to*: '$requested_reviewer'"
+                    }
+                  }
+                ]
+              }
+            ]
+          }' $SLACK_WEBHOOK
+
+        # Notificação de PR aberto ou reaberto
+        elif [ "${{ github.event.action }}" == "opened" ] || [ "${{ github.event.action }}" == "reopened" ]; then
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": "A pull request has been *${{ github.event.action }}*: <${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}> (#${{ github.event.pull_request.number }})",
+            "attachments": [
+              {
+                "color": "'$color'",
+                "blocks": [
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Author*: <https://github.com/${{ github.event.pull_request.user.login }}|${{ github.event.pull_request.user.login }}>\n*Branch*: `${{ github.event.pull_request.head.ref }}`\n*Commits*: `${{ github.event.pull_request.commits }}`\n*Files Changed*: `${{ github.event.pull_request.changed_files }}`"
+                    }
+                  }
+                ]
+              }
+            ]
+          }' $SLACK_WEBHOOK
+        fi

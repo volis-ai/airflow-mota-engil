@@ -1,0 +1,9 @@
+MOTA_ENGIL_GITHUB_REGISTRY:
+  conn_type: docker
+  host: ghcr.io
+  login: <replace-here>
+  password: <replace-here>
+
+slack_api_default:
+  conn_type: slack
+  password: <replace-here>

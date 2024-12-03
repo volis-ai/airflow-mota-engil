@@ -1,0 +1,9 @@
+credentials/*
+!credentials/.gitkeep
+logs/*
+!logs/.gitkeep
+.env
+**/__pycache__
+.venv
+configs/variables.yaml
+configs/connections.yaml
